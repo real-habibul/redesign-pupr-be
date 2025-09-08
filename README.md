@@ -44,7 +44,7 @@ Template ini memungkinkan fitur Perencanaan Data dapat digunakan ulang oleh prov
 
 1. **Clone & Install Dependencies**
    ```bash
-   git clone https://github.com/pupr-2024-2025/E-Catalog-Backend.git backend
+   git clone https://github.com/real-habibul/redesign-pupr-be.git backend
    cd backend
    composer install
    ```
@@ -81,7 +81,7 @@ Template ini memungkinkan fitur Perencanaan Data dapat digunakan ulang oleh prov
 
 1. **Clone & Install Dependencies**
    ```bash
-   git clone https://github.com/pupr-2024-2025/front-end-e-katalog-SIPASTI.git frontend
+   git clone https://github.com/real-habibul/redesign-pupr-fe.git frontend
    cd frontend
    npm install
    ```
