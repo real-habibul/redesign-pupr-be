@@ -502,4 +502,62 @@ class PerencanaanDataController extends Controller
             ], 404);
         }
     }
+
+    /**
+     * Get public perencanaan data (read-only, no auth required)
+     *
+     * @param \Illuminate\Http\Request $request
+     * @return \Illuminate\Http\JsonResponse
+     */
+    public function getPublicPerencanaanData(Request $request)
+    {
+        try {
+            $regionCode = $request->query('region', env('ORG_REGION_CODE', 'default'));
+            $period = $request->query('period'); // Remove default value
+            $cityCode = $request->query('city');
+
+            // Build query
+            $query = \App\Models\PerencanaanData::with([
+                'informasiUmum',
+                'material',
+                'peralatan',
+                'tenagaKerja'
+            ]);
+
+            // Apply filters
+            if ($regionCode && $regionCode !== 'default') {
+                $query->where('region_code', $regionCode);
+            }
+
+            // Only filter by period if explicitly provided
+            if ($period) {
+                $query->where('period_year', $period);
+            }
+
+            if ($cityCode) {
+                $query->where('city_code', $cityCode);
+            }
+
+            // Get data with pagination
+            $perPage = $request->query('per_page', 10);
+            $data = $query->orderBy('created_at', 'desc')->paginate($perPage);
+
+            return response()->json([
+                'status' => 'success',
+                'message' => 'Public perencanaan data retrieved successfully',
+                'data' => $data,
+                'filters' => [
+                    'region' => $regionCode,
+                    'period' => $period,
+                    'city' => $cityCode
+                ]
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to retrieve public perencanaan data',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
 }

@@ -17,6 +17,7 @@ use App\Http\Controllers\VendorController;
 use App\Http\Controllers\KuisionerController;
 use App\Http\Controllers\PemeriksaanAndRekonsiliasiController;
 use App\Http\Controllers\SurveyKuisionerController;
+use App\Http\Controllers\SettingsController;
 use App\Models\SatuanBalaiKerja;
 use Illuminate\Support\Facades\Mail;
 
@@ -38,6 +39,10 @@ use Illuminate\Support\Facades\Mail;
 Route::get('/hello-nginx-vm', function () {
     return response()->json(['message' => "Hello World Nginx VM"]);
 });
+
+// Public endpoints (no authentication required)
+Route::get('/settings/public', [SettingsController::class, 'getPublicSettings']);
+Route::get('/perencanaan-data', [PerencanaanDataController::class, 'getPublicPerencanaanData']);
 
 Route::post('/store-user', [UsersController::class, 'store']);
 Route::post('/login', [LoginController::class, 'login']);

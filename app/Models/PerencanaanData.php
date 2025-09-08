@@ -14,12 +14,15 @@ class PerencanaanData extends Model
         'informasi_umum_id',
         'identifikasi_kebutuhan_id',
         'shortlist_vendor_id',
-        'status',
-        'petugas_lapangan_id',
+        'team_teknis_balai_id',
         'pengawas_id',
+        'petugas_lapangan_id',
         'pengolah_data_id',
         'doc_berita_acara',
-        'doc_berita_acara_validasi'
+        'doc_berita_acara_validasi',
+        'region_code',
+        'period_year',
+        'city_code'
     ];
 
     public function informasiUmum()
