@@ -504,7 +504,7 @@ class PerencanaanDataController extends Controller
     }
 
     /**
-     * Get public perencanaan data (read-only, no auth required)
+     * Get public perencanaan data with advanced filtering, sorting, and pagination
      *
      * @param \Illuminate\Http\Request $request
      * @return \Illuminate\Http\JsonResponse
@@ -512,16 +512,43 @@ class PerencanaanDataController extends Controller
     public function getPublicPerencanaanData(Request $request)
     {
         try {
-            $regionCode = $request->query('region', env('ORG_REGION_CODE', 'default'));
-            $period = $request->query('period'); // Remove default value
-            $cityCode = $request->query('city');
+            // Validate request parameters
+            $validator = Validator::make($request->all(), [
+                'region' => 'nullable|string|max:20',
+                'period' => 'nullable|integer|min:2020|max:2030',
+                'city' => 'nullable|string|max:20',
+                'per_page' => 'nullable|integer|min:1|max:100',
+                'page' => 'nullable|integer|min:1',
+                'sort_by' => 'nullable|string|in:created_at,period_year,city_code,status',
+                'sort_order' => 'nullable|string|in:asc,desc',
+                'status' => 'nullable|string|in:draft,review,approved,completed',
+                'search' => 'nullable|string|max:255',
+            ]);
 
-            // Build query
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Invalid request parameters',
+                    'errors' => $validator->errors()
+                ], 400);
+            }
+
+            // Get validated input
+            $regionCode = $request->query('region', env('ORG_REGION_CODE', 'default'));
+            $period = $request->query('period');
+            $cityCode = $request->query('city');
+            $perPage = $request->query('per_page', 10);
+            $sortBy = $request->query('sort_by', 'created_at');
+            $sortOrder = $request->query('sort_order', 'desc');
+            $status = $request->query('status');
+            $search = $request->query('search');
+
+            // Build query with optimized eager loading
             $query = \App\Models\PerencanaanData::with([
-                'informasiUmum',
-                'material',
-                'peralatan',
-                'tenagaKerja'
+                'informasiUmum:id,nama_paket,nama_ppk,nama_balai',
+                'material:id,identifikasi_kebutuhan_id,nama_material',
+                'peralatan:id,identifikasi_kebutuhan_id,nama_peralatan',
+                'tenagaKerja:id,identifikasi_kebutuhan_id,jenis_tenaga_kerja'
             ]);
 
             // Apply filters
@@ -529,34 +556,251 @@ class PerencanaanDataController extends Controller
                 $query->where('region_code', $regionCode);
             }
 
-            // Only filter by period if explicitly provided
             if ($period) {
                 $query->where('period_year', $period);
             }
 
             if ($cityCode) {
-                $query->where('city_code', $cityCode);
+                $query->where('city_code', 'LIKE', "%{$cityCode}%");
+            }
+
+            if ($status) {
+                $query->where('status', $status);
+            }
+
+            // Apply search across related models
+            if ($search) {
+                $query->where(function ($q) use ($search) {
+                    $q->whereHas('informasiUmum', function ($iq) use ($search) {
+                        $iq->where('nama_paket', 'LIKE', "%{$search}%")
+                           ->orWhere('nama_ppk', 'LIKE', "%{$search}%")
+                           ->orWhere('nama_balai', 'LIKE', "%{$search}%");
+                    })
+                    ->orWhere('city_code', 'LIKE', "%{$search}%")
+                    ->orWhere('region_code', 'LIKE', "%{$search}%");
+                });
+            }
+
+            // Apply sorting with fallback
+            $allowedSortFields = ['created_at', 'period_year', 'city_code', 'status'];
+            if (in_array($sortBy, $allowedSortFields)) {
+                $query->orderBy($sortBy, $sortOrder);
+            } else {
+                $query->orderBy('created_at', 'desc');
             }
 
             // Get data with pagination
-            $perPage = $request->query('per_page', 10);
-            $data = $query->orderBy('created_at', 'desc')->paginate($perPage);
+            $data = $query->paginate($perPage);
+
+            // Format response data
+            $formattedData = $data->getCollection()->map(function ($item) {
+                return [
+                    'id' => $item->id,
+                    'region_code' => $item->region_code,
+                    'period_year' => $item->period_year,
+                    'city_code' => $item->city_code,
+                    'status' => $item->status ?? 'draft',
+                    'created_at' => $item->created_at->toISOString(),
+                    'updated_at' => $item->updated_at->toISOString(),
+                    'informasi_umum' => $item->informasiUmum ? [
+                        'nama_paket' => $item->informasiUmum->nama_paket,
+                        'nama_ppk' => $item->informasiUmum->nama_ppk,
+                        'nama_balai' => $item->informasiUmum->nama_balai,
+                    ] : null,
+                    'resource_counts' => [
+                        'material' => $item->material->count(),
+                        'peralatan' => $item->peralatan->count(),
+                        'tenaga_kerja' => $item->tenagaKerja->count(),
+                    ]
+                ];
+            });
 
             return response()->json([
                 'status' => 'success',
                 'message' => 'Public perencanaan data retrieved successfully',
-                'data' => $data,
+                'data' => [
+                    'data' => $formattedData,
+                    'current_page' => $data->currentPage(),
+                    'first_page_url' => $data->url(1),
+                    'last_page' => $data->lastPage(),
+                    'last_page_url' => $data->url($data->lastPage()),
+                    'next_page_url' => $data->nextPageUrl(),
+                    'prev_page_url' => $data->previousPageUrl(),
+                    'per_page' => $data->perPage(),
+                    'total' => $data->total(),
+                    'from' => $data->firstItem(),
+                    'to' => $data->lastItem(),
+                ],
                 'filters' => [
                     'region' => $regionCode,
                     'period' => $period,
-                    'city' => $cityCode
+                    'city' => $cityCode,
+                    'status' => $status,
+                    'search' => $search,
+                    'sort_by' => $sortBy,
+                    'sort_order' => $sortOrder,
+                ],
+                'meta' => [
+                    'total_regions' => \App\Models\PerencanaanData::distinct('region_code')->count(),
+                    'total_periods' => \App\Models\PerencanaanData::distinct('period_year')->count(),
+                    'available_periods' => \App\Models\PerencanaanData::distinct('period_year')
+                        ->orderBy('period_year', 'desc')
+                        ->pluck('period_year')
+                        ->values(),
                 ]
             ]);
         } catch (\Exception $e) {
+            \Log::error('Failed to retrieve public perencanaan data', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'request' => $request->all()
+            ]);
+
             return response()->json([
                 'status' => 'error',
                 'message' => 'Failed to retrieve public perencanaan data',
-                'error' => $e->getMessage()
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
+            ], 500);
+        }
+    }
+
+    /**
+     * Export public perencanaan data to Excel/CSV
+     *
+     * @param \Illuminate\Http\Request $request
+     * @return \Illuminate\Http\Response
+     */
+    public function exportPublicPerencanaanData(Request $request)
+    {
+        try {
+            // Validate request parameters (same as getPublicPerencanaanData)
+            $validator = Validator::make($request->all(), [
+                'region' => 'nullable|string|max:20',
+                'period' => 'nullable|integer|min:2020|max:2030',
+                'city' => 'nullable|string|max:20',
+                'status' => 'nullable|string|in:draft,review,approved,completed',
+                'search' => 'nullable|string|max:255',
+                'format' => 'nullable|string|in:excel,csv',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Invalid request parameters',
+                    'errors' => $validator->errors()
+                ], 400);
+            }
+
+            // Get validated input
+            $regionCode = $request->query('region', env('ORG_REGION_CODE', 'default'));
+            $period = $request->query('period');
+            $cityCode = $request->query('city');
+            $status = $request->query('status');
+            $search = $request->query('search');
+            $format = $request->query('format', 'excel');
+
+            // Build query (same logic as getPublicPerencanaanData but without pagination)
+            $query = \App\Models\PerencanaanData::with([
+                'informasiUmum:id,nama_paket,nama_ppk,nama_balai',
+                'material:id,identifikasi_kebutuhan_id,nama_material',
+                'peralatan:id,identifikasi_kebutuhan_id,nama_peralatan',
+                'tenagaKerja:id,identifikasi_kebutuhan_id,jenis_tenaga_kerja'
+            ]);
+
+            // Apply same filters as getPublicPerencanaanData
+            if ($regionCode && $regionCode !== 'default') {
+                $query->where('region_code', $regionCode);
+            }
+            if ($period) {
+                $query->where('period_year', $period);
+            }
+            if ($cityCode) {
+                $query->where('city_code', 'LIKE', "%{$cityCode}%");
+            }
+            if ($status) {
+                $query->where('status', $status);
+            }
+            if ($search) {
+                $query->where(function ($q) use ($search) {
+                    $q->whereHas('informasiUmum', function ($iq) use ($search) {
+                        $iq->where('nama_paket', 'LIKE', "%{$search}%")
+                           ->orWhere('nama_ppk', 'LIKE', "%{$search}%")
+                           ->orWhere('nama_balai', 'LIKE', "%{$search}%");
+                    })
+                    ->orWhere('city_code', 'LIKE', "%{$search}%")
+                    ->orWhere('region_code', 'LIKE', "%{$search}%");
+                });
+            }
+
+            // Get all data (no pagination for export)
+            $data = $query->orderBy('created_at', 'desc')->get();
+
+            // Prepare export data
+            $exportData = $data->map(function ($item, $index) {
+                return [
+                    'No' => $index + 1,
+                    'Nama Paket' => $item->informasiUmum?->nama_paket ?? '-',
+                    'PPK' => $item->informasiUmum?->nama_ppk ?? '-',
+                    'Balai' => $item->informasiUmum?->nama_balai ?? '-',
+                    'Periode' => $item->period_year,
+                    'Kode Kota' => $item->city_code ?? '-',
+                    'Status' => ucfirst($item->status ?? 'draft'),
+                    'Tanggal Dibuat' => $item->created_at->format('d/m/Y H:i'),
+                    'Jumlah Material' => $item->material->count(),
+                    'Jumlah Peralatan' => $item->peralatan->count(),
+                    'Jumlah Tenaga Kerja' => $item->tenagaKerja->count(),
+                ];
+            });
+
+            $filename = 'perencanaan_data_' . date('Y-m-d_H-i-s');
+
+            if ($format === 'csv') {
+                $headers = [
+                    'Content-Type' => 'text/csv',
+                    'Content-Disposition' => "attachment; filename=\"{$filename}.csv\"",
+                ];
+
+                $callback = function () use ($exportData) {
+                    $file = fopen('php://output', 'w');
+
+                    // Add BOM for UTF-8
+                    fwrite($file, "\xEF\xBB\xBF");
+
+                    // Add headers
+                    if ($exportData->isNotEmpty()) {
+                        fputcsv($file, array_keys($exportData->first()));
+                    }
+
+                    // Add data
+                    foreach ($exportData as $row) {
+                        fputcsv($file, $row);
+                    }
+
+                    fclose($file);
+                };
+
+                return response()->stream($callback, 200, $headers);
+            } else {
+                // For Excel format, you would need maatwebsite/excel package
+                // For now, return JSON response indicating Excel export is not yet implemented
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Excel export not yet implemented. Please use CSV format.',
+                    'suggestion' => 'Add format=csv to your request'
+                ], 501);
+            }
+
+        } catch (\Exception $e) {
+            \Log::error('Failed to export public perencanaan data', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'request' => $request->all()
+            ]);
+
+            return response()->json([
+                'status' => 'error',
+                'message' => 'Failed to export data',
+                'error' => config('app.debug') ? $e->getMessage() : 'Internal server error'
             ], 500);
         }
     }

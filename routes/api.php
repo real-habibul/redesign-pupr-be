@@ -43,6 +43,7 @@ Route::get('/hello-nginx-vm', function () {
 // Public endpoints (no authentication required)
 Route::get('/settings/public', [SettingsController::class, 'getPublicSettings']);
 Route::get('/perencanaan-data', [PerencanaanDataController::class, 'getPublicPerencanaanData']);
+Route::get('/perencanaan-data/export', [PerencanaanDataController::class, 'exportPublicPerencanaanData']);
 
 Route::post('/store-user', [UsersController::class, 'store']);
 Route::post('/login', [LoginController::class, 'login']);

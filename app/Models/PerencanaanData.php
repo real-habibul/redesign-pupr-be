@@ -22,7 +22,8 @@ class PerencanaanData extends Model
         'doc_berita_acara_validasi',
         'region_code',
         'period_year',
-        'city_code'
+        'city_code',
+        'status'
     ];
 
     public function informasiUmum()
